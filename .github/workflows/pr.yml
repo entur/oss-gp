@@ -40,7 +40,8 @@ jobs:
     env:
       ARTIFACT_NAME: ${{ needs.docker-build.outputs.image_artifact }}
       RUN_ID: ${{ github.run_id }}
-      REPOSITORY: entur/oss-gp-infra
+      TARGET_REPOSITORY: entur/oss-gp-infra
+      REPOSITORY: ${{ github.repository }}
       EVENT_TYPE: trigger-downstream-ci
       OSS_TEST_PAT: ${{ secrets.OSS_TEST_PAT }}
     steps:
@@ -52,10 +53,11 @@ jobs:
             --arg event_type "$EVENT_TYPE" \
             --arg artifact_name "$ARTIFACT_NAME" \
             --arg run_id "$RUN_ID" \
-            '{event_type: $event_type, client_payload: {artifact_name: $artifact_name, run_id: $run_id}}')"
+            --arg repository "$REPOSITORY" \
+            '{event_type: $event_type, client_payload: {artifact_name: $artifact_name, run_id: $run_id, repository: $repository}}')"
           echo "Triggering downstream CI for $REPOSITORY with docker artifact $ARTIFACT_NAME"
           curl --fail-with-body -X POST \
           -H "Authorization: token $token" \
           -H "Accept: application/vnd.github.everest-preview+json" \
-          -H "Content-Type: application/json" "https://api.github.com/repos/$REPOSITORY/dispatches" \
+          -H "Content-Type: application/json" "https://api.github.com/repos/$TARGET_REPOSITORY/dispatches" \
           -d "$payload"
