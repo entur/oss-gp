@@ -1,0 +1,15 @@
+# codeql.yml
+name: "CodeQL"
+
+on:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 3 * * 1-5"
+
+jobs:
+  code-scan:
+    name: Code Scan
+    uses: entur/gha-security/.github/workflows/code-scan.yml@v2
+    secrets: inherit
