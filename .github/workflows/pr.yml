@@ -33,3 +33,24 @@ jobs:
     uses: entur/gha-security/.github/workflows/docker-scan.yml@v2
     with:
       image_artifact: ${{ needs.docker-build.outputs.image_artifact }}
+
+  trigger-downstream-ci:
+    # only build and push the image when it's a commit to master in Entur's repository
+    runs-on: ubuntu-latest
+    needs: [ docker-build, docker-scan ]
+    env:
+      ARTIFACT_NAME: ${{ needs.docker-build.outputs.image_artifact }}
+      RUN_ID: ${{ github.run_id }}
+      REPOSITORY: ${{ github.repository }}
+      EVENT_TYPE: trigger-downstream-ci
+    steps:
+      - name: Trigger downstream CI
+        run: |
+          repository="${{ env.REPOSITORY }}"
+          event_type="${{ env.EVENT_TYPE }}"
+          echo "Triggering downstream CI for $repository with docker artifact ${{ env.ARTIFACT_NAME }}"
+          curl -X POST \
+          -H "Authorization: token ${{ secrets.OSS_TEST_PAT }}" \
+          -H "Accept: application/vnd.github.everest-preview+json" \
+          -H "Content-Type: application/json" https://api.github.com/repos/$repository/dispatches \
+          -d "{\"event_type\": \"$event_type\", \"client_payload\": {\"artifact_name\": \"${{ env.ARTIFACT_NAME }}\", \"run_id\": \"${{ env.RUN_ID }}\" }}"
