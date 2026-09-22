@@ -48,7 +48,7 @@ jobs:
           repository="${{ env.REPOSITORY }}"
           event_type="${{ env.EVENT_TYPE }}"
           echo "Triggering downstream CI for $repository with docker artifact ${{ env.ARTIFACT_NAME }}"
-          curl --fail -X POST \
+          curl --fail-with-body -X POST \
           -H "Authorization: token ${{ secrets.OSS_TEST_PAT }}" \
           -H "Accept: application/vnd.github.everest-preview+json" \
           -H "Content-Type: application/json" https://api.github.com/repos/$repository/dispatches \
