@@ -1,0 +1,212 @@
+name: Entur/Docker/Build
+
+on:
+  workflow_call:
+    inputs:
+      context:
+        description: "Build context, default root of repository"
+        type: string
+        default: "."
+      dockerfile:
+        description: "Dockerfile to use for build"
+        type: string
+        default: "Dockerfile"
+      image_name:
+        description: "Image name to use for the build"
+        type: string
+        default: "repo_name"
+      build_artifact_name:
+        description: "Name of GitHub artifact to add to build"
+        type: string
+      build_artifact_path:
+        description: "Path to the artifact"
+        type: string
+        default: "build/libs"
+      cloud_provider:
+        description: "Which cloud service provider to use - Google Cloud: 'gcp' or Azure: 'az'"
+        type: string
+        default: "gcp"
+      timeout_minutes:
+        description: "Timeout in minutes"
+        type: number
+        default: 40
+      runner:
+        description: 'Runner to use for the build. To use a runner group, use the format "{''group'': ''group_name''}". See https://docs.github.com/en/actions/reference/workflow-syntax-for-github-actions#jobsjob_idruns-on for more information.'
+        type: string
+        default: "['ubuntu-24.04']"
+      build_args:
+        description: 'List of build args to pass to docker build. Warning! Do not pass secrets into docker args.'
+        type: string
+        required: false
+      git_ref:
+        description: 'Option to override git reference to checkout before build'
+        type: string
+        required: false
+      additional_artifacts_name:
+        description: 'Name of GitHub artifact to contain additional artifacts.'
+        type: string
+        required: false
+      additional_artifacts_paths:
+        description: 'List of paths to additional artifacts to be saved to Github artifact storage.'
+        type: string
+        required: false
+      cache:
+        description: "Docker layer cache mode - 'max' caches all build stages, 'min' caches only the final image layers, 'off' disables caching."
+        type: string
+        default: "max"
+      pull:
+        description: "Always attempt to pull a newer version of the base image"
+        type: boolean
+        default: false
+              
+    secrets:
+      BUILD_SECRETS:
+        required: false
+    outputs:
+      image_artifact:
+        value: ${{ jobs.build.outputs.image_artifact }}
+      additional_artifacts:
+        value: ${{ jobs.build.outputs.additional_artifacts }}
+
+jobs:
+  build:
+    name: Docker Build
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: ${{ inputs.timeout_minutes }}
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_artifact: ${{ env.GHA_DOCKER_BUILD_IMAGE_NAME }}
+      additional_artifacts: ${{ env.GHA_ADDITIONAL_ARTIFACTS_NAME }}
+    env:
+      GHA_DOCKER_BUILD_CONTEXT: ${{ inputs.context }}
+      GHA_DOCKER_BUILD_DOCKERFILE: ${{ inputs.dockerfile }}
+      GHA_DOCKER_BUILD_ARTIFACT_PATH: ${{ inputs.build_artifact_path }}
+      GHA_DOCKER_BUILD_ARTIFACT_NAME: ${{ inputs.build_artifact_name }}
+      GHA_DOCKER_BUILD_IMAGE_NAME: ${{ inputs.image_name }}
+      GHA_DOCKER_PUSH_CLOUD_PROVIDER: ${{ inputs.cloud_provider }}
+      GHA_DOCKER_BUILD_ARGS: ${{ inputs.build_args }}
+      GHA_GIT_REF: ${{inputs.git_ref}}
+      GHA_ADDITIONAL_ARTIFACTS_NAME: ${{inputs.additional_artifacts_name}}
+      GHA_DOCKER_BUILD_CACHE: ${{ inputs.cache }}
+      GHA_DOCKER_PULL: ${{ inputs.pull }}
+
+    steps:
+      - name: Set variables
+        id: set-vars
+        shell: bash
+        run: |
+          if [[ "${GHA_DOCKER_BUILD_IMAGE_NAME}" = "repo_name" ]]; then
+            echo "GHA_DOCKER_BUILD_IMAGE_NAME=${GITHUB_REPOSITORY#*/}" >> "$GITHUB_ENV"
+          fi
+
+          # An empty value bypasses the input default, which only applies when
+          # 'cache' is omitted entirely, so a caller forwarding an unset input
+          # of its own lands here with an empty string. Fall back to the default.
+          CACHE_MODE="${GHA_DOCKER_BUILD_CACHE:-max}"
+
+          case "${CACHE_MODE}" in
+            max|min)
+              echo "GHA_DOCKER_BUILD_CACHE_FROM=type=gha,ignore-error=true" >> "$GITHUB_ENV"
+              echo "GHA_DOCKER_BUILD_CACHE_TO=type=gha,mode=${CACHE_MODE},ignore-error=true" >> "$GITHUB_ENV"
+              ;;
+            off)
+              echo "GHA_DOCKER_BUILD_CACHE_FROM=" >> "$GITHUB_ENV"
+              echo "GHA_DOCKER_BUILD_CACHE_TO=" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::Invalid value for input 'cache': '${CACHE_MODE}'. Must be one of: off, min, max"
+              exit 1
+              ;;
+          esac
+
+      - name: Checkout code
+        id: checkout-code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: env.GHA_GIT_REF == ''
+        with:
+          submodules: recursive
+          
+      - name: Checkout code with reference
+        id: checkout-code-ref
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        if: env.GHA_GIT_REF != ''
+        with:
+          submodules: recursive
+          ref: ${{ env.GHA_GIT_REF }}
+
+      - if: env.GHA_DOCKER_BUILD_ARTIFACT_NAME != ''
+        name: Download artifact ${{ env.GHA_DOCKER_BUILD_ARTIFACT_NAME }}
+        id: download-artifact
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: ${{ env.GHA_DOCKER_BUILD_ARTIFACT_NAME }}
+          path: ${{ env.GHA_DOCKER_BUILD_ARTIFACT_PATH }}
+
+      - if: env.GHA_DOCKER_BUILD_ARTIFACT_NAME != ''
+        name: List artifacts in ${{ env.GHA_DOCKER_BUILD_ARTIFACT_PATH }}
+        id: list-artifacts
+        shell: bash
+        run: ls -l ${{ env.GHA_DOCKER_BUILD_ARTIFACT_PATH }}
+
+      - name: Setup buildx
+        id: setup-buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Build image
+        id: build
+        uses: docker/build-push-action@d08e5c354a6adb9ed34480a06d141179aa583294 # v7.0.0
+        with:
+          cache-from: ${{ env.GHA_DOCKER_BUILD_CACHE_FROM }}
+          cache-to: ${{ env.GHA_DOCKER_BUILD_CACHE_TO }}
+          context: ${{ env.GHA_DOCKER_BUILD_CONTEXT }}
+          build-args: ${{ env.GHA_DOCKER_BUILD_ARGS }}
+          file: ${{ env.GHA_DOCKER_BUILD_DOCKERFILE }}
+          outputs: "type=docker,dest=/tmp/${{ env.GHA_DOCKER_BUILD_IMAGE_NAME }}.tar" 
+          tags: ${{ env.GHA_DOCKER_BUILD_IMAGE_NAME }} # Need tag to find artifact in push job
+          push: false
+          pull: ${{ env.GHA_DOCKER_PULL }}
+          provenance: false 
+          secrets: |
+            ${{ secrets.BUILD_SECRETS }}
+
+      - name: Save docker image to the artifact storage
+        id: save-image
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ env.GHA_DOCKER_BUILD_IMAGE_NAME }}
+          path: /tmp/${{ env.GHA_DOCKER_BUILD_IMAGE_NAME }}.tar
+          retention-days: 4 # TODO discuss this or make it a parameter
+      
+      - name: Extract additional artifacts
+        if: inputs.additional_artifacts_paths != ''
+        run: |
+          mkdir -p /tmp/artifacts
+          
+          docker load -i /tmp/${{ env.GHA_DOCKER_BUILD_IMAGE_NAME }}.tar
+          IMAGE_ID=$(docker images --format "{{.ID}}" | head -n 1)
+          
+          docker create --name temp-container "$IMAGE_ID"
+
+          echo "${{ inputs.additional_artifacts_paths }}" | while read -r path; do
+            path=${path// /}  # Remove spaces
+            [ -n "$path" ] || continue
+
+            echo "Extracting: $path"
+            docker cp "temp-container:/$path" "/tmp/artifacts/$(basename "$path")"
+          done
+
+          echo "Extracted artifacts:"
+          ls -lah /tmp/artifacts/
+
+          docker rm temp-container
+
+      - name: Save additional artifacts to the artifact storage
+        if: inputs.additional_artifacts_paths != ''
+        id: save-additional-artifacts
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: ${{ env.GHA_ADDITIONAL_ARTIFACTS_NAME }}
+          path: /tmp/artifacts
+          retention-days: 4 # TODO discuss this or make it a parameter
