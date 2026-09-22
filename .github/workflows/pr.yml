@@ -23,13 +23,13 @@ jobs:
       ignore: DL3018
 
   docker-build:
-    uses: entur/gha-docker/.github/workflows/build.yml@v1
+    uses: ./.github/workflows/build.yml
     with:
       dockerfile: Dockerfile
       context: .
 
   docker-scan:
     needs: docker-build
-    uses: ./.github/workflows/build.yml
+    uses: entur/gha-security/.github/workflows/docker-scan.yml@v2
     with:
       image_artifact: ${{ needs.docker-build.outputs.image_artifact }}
