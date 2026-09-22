@@ -42,14 +42,20 @@ jobs:
       RUN_ID: ${{ github.run_id }}
       REPOSITORY: entur/oss-gp-infra
       EVENT_TYPE: trigger-downstream-ci
+      OSS_TEST_PAT: ${{ secrets.OSS_TEST_PAT }}
     steps:
       - name: Trigger downstream CI
         run: |
-          repository="${{ env.REPOSITORY }}"
-          event_type="${{ env.EVENT_TYPE }}"
-          echo "Triggering downstream CI for $repository with docker artifact ${{ env.ARTIFACT_NAME }}"
+          # Strip any stray CR/LF from the token so a malformed secret can't corrupt the request headers.
+          token="$(printf '%s' "$OSS_TEST_PAT" | tr -d '\r\n')"
+          payload="$(jq -n \
+            --arg event_type "$EVENT_TYPE" \
+            --arg artifact_name "$ARTIFACT_NAME" \
+            --arg run_id "$RUN_ID" \
+            '{event_type: $event_type, client_payload: {artifact_name: $artifact_name, run_id: $run_id}}')"
+          echo "Triggering downstream CI for $REPOSITORY with docker artifact $ARTIFACT_NAME"
           curl --fail-with-body -X POST \
-          -H "Authorization: token ${{ secrets.OSS_TEST_PAT }}" \
+          -H "Authorization: token $token" \
           -H "Accept: application/vnd.github.everest-preview+json" \
-          -H "Content-Type: application/json" https://api.github.com/repos/$repository/dispatches \
-          -d "{\"event_type\": \"$event_type\", \"client_payload\": {\"artifact_name\": \"${{ env.ARTIFACT_NAME }}\", \"run_id\": \"${{ env.RUN_ID }}\" }}"
+          -H "Content-Type: application/json" "https://api.github.com/repos/$REPOSITORY/dispatches" \
+          -d "$payload"
