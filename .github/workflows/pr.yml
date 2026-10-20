@@ -33,3 +33,31 @@ jobs:
     uses: entur/gha-security/.github/workflows/docker-scan.yml@v2
     with:
       image_artifact: ${{ needs.docker-build.outputs.image_artifact }}
+
+  trigger-downstream-ci:
+    runs-on: ubuntu-latest
+    needs: [ docker-build]
+    env:
+      ARTIFACT_NAME: ${{ needs.docker-build.outputs.image_artifact }}
+      RUN_ID: ${{ github.run_id }}
+      TARGET_REPOSITORY: entur/oss-gp-infra
+      REPOSITORY: ${{ github.repository }}
+      EVENT_TYPE: trigger-downstream-ci
+      OSS_TEST_PAT: ${{ secrets.OSS_TEST_PAT }}
+    steps:
+      - name: Trigger downstream CI
+        run: |
+          # Strip any stray CR/LF from the token so a malformed secret can't corrupt the request headers.
+          token="$(printf '%s' "$OSS_TEST_PAT" | tr -d '\r\n')"
+          payload="$(jq -n \
+            --arg event_type "$EVENT_TYPE" \
+            --arg artifact_name "$ARTIFACT_NAME" \
+            --arg run_id "$RUN_ID" \
+            --arg repository "$REPOSITORY" \
+            '{event_type: $event_type, client_payload: {artifact_name: $artifact_name, run_id: $run_id, repository: $repository}}')"
+          echo "Triggering downstream CI for $REPOSITORY with docker artifact $ARTIFACT_NAME"
+          curl --fail-with-body -X POST \
+          -H "Authorization: token $token" \
+          -H "Accept: application/vnd.github.everest-preview+json" \
+          -H "Content-Type: application/json" "https://api.github.com/repos/$TARGET_REPOSITORY/dispatches" \
+          -d "$payload"
