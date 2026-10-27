@@ -37,7 +37,4 @@ jobs:
               --arg target_repository "$TARGET_REPOSITORY" \
               --arg payload "$PAYLOAD" \
               '{event_type: $event_type, client_payload: {workflow_type: $workflow_type, target_repository: $target_repository, payload: $payload}}')"
-            curl -i -X POST -H "Authorization: Bearer $GH_TOKEN" ${CLOUD_RUN_URL} -d "$request_payload" >> $GITHUB_OUTPUT
-        - name: Output response
-          run: |
-            echo "Response: ${{ steps.trigger.outputs.response }}"
+            curl --fail-with-body -X POST -H "Authorization: Bearer ${GH_TOKEN}" ${CLOUD_RUN_URL} -d "$request_payload"
