@@ -24,12 +24,20 @@ jobs:
         outputs:
           response: ${{ steps.trigger.outputs.response }}
         steps:
+        - name: Authenticate to Google Cloud
+          id: auth
+          uses: entur/gha-meta/.github/actions/cloud-auth@v1
+          with:
+            environment: dev
+            gcp_workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+            gcp_service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
         - name: Trigger downstream CI
+          id: trigger
           env:
             WORKFLOW_TYPE: ${{ github.event.inputs.wotkflow_type }}
             TARGET_REPOSITORY: ${{ github.event.inputs.target_repository }}
             PAYLOAD: ${{ github.event.inputs.payload }}
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           run: |
             request_payload="$(jq -n \
               --arg event_type "trigger-downstream-ci" \
@@ -37,7 +45,9 @@ jobs:
               --arg target_repository "$TARGET_REPOSITORY" \
               --arg payload "$PAYLOAD" \
               '{event_type: $event_type, client_payload: {workflow_type: $workflow_type, target_repository: $target_repository, payload: $payload}}')"
-            curl -i -X POST -H "Authorization: Bearer $GH_TOKEN" ${CLOUD_RUN_URL} -d "$request_payload" >> $GITHUB_OUTPUT
+            id_token="$(gcloud auth print-identity-token --audiences="${CLOUD_RUN_URL}")"
+            response="$(curl -sS -X POST -H "Authorization: Bearer ${id_token}" "${CLOUD_RUN_URL}" -d "$request_payload")"
+            echo "response=${response}" >> "$GITHUB_OUTPUT"
         - name: Output response
           run: |
             echo "Response: ${{ steps.trigger.outputs.response }}"
