@@ -1,0 +1,43 @@
+name: OSS Dispatch Trigger
+
+on:
+  workflow_dispatch:
+    inputs:
+      wotkflow_type:
+        description: 'The workflow type to trigger'
+        required: true
+      target_repository:
+        description: 'The target repository to trigger the workflow in'
+        required: true
+      payload:
+        description: 'The JSON payload to send'
+        required: false
+
+env:
+  CLOUD_RUN_URL: https://github-oss-dispatcher-620062935108.europe-west1.run.app
+
+jobs:
+    trigger:
+        runs-on: ubuntu-latest
+        permissions:
+            id-token: write
+        outputs:
+          response: ${{ steps.trigger.outputs.response }}
+        steps:
+        - name: Trigger downstream CI
+          env:
+            WORKFLOW_TYPE: ${{ github.event.inputs.wotkflow_type }}
+            TARGET_REPOSITORY: ${{ github.event.inputs.target_repository }}
+            PAYLOAD: ${{ github.event.inputs.payload }}
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          run: |
+            request_payload="$(jq -n \
+              --arg event_type "trigger-downstream-ci" \
+              --arg workflow_type "$WORKFLOW_TYPE" \
+              --arg target_repository "$TARGET_REPOSITORY" \
+              --arg payload "$PAYLOAD" \
+              '{event_type: $event_type, client_payload: {workflow_type: $workflow_type, target_repository: $target_repository, payload: $payload}}')"
+            curl -i -X POST -H "Authorization: Bearer $GH_TOKEN" ${CLOUD_RUN_URL} -d "$request_payload" >> $GITHUB_OUTPUT
+        - name: Output response
+          run: |
+            echo "Response: ${{ steps.trigger.outputs.response }}"
