@@ -1,21 +1,20 @@
 name: OSS Dispatch Trigger
 
 on:
-  workflow_dispatch:
+  workflow_call:
     inputs:
       workflow_type:
         description: 'The workflow type to trigger'
         required: true
+        type: string
       target_repository:
         description: 'The target repository to trigger the workflow in'
         required: true
+        type: string
       artifact_name:
         description: 'The name of the artifact to pass to the workflow'
         required: false
-      payload:
-        description: 'The JSON payload to send'
-        required: false
-
+        type: string
 env:
   CLOUD_RUN_URL: https://github-oss-dispatcher-620062935108.europe-west1.run.app
 
@@ -29,15 +28,13 @@ jobs:
         # specific audience with &audience=entur-oss-dispatcher.
         permissions:
             id-token: write
-        outputs:
-          response: ${{ steps.trigger.outputs.response }}
         steps:
         - name: Trigger downstream CI
           env:
-            WORKFLOW_TYPE: ${{ github.event.inputs.workflow_type }}
-            TARGET_REPOSITORY: ${{ github.event.inputs.target_repository }}
-            ARTIFACT_NAME: ${{ github.event.inputs.artifact_name }}
-            PAYLOAD: ${{ github.event.inputs.payload }}
+            WORKFLOW_TYPE: ${{ inputs.workflow_type }}
+            TARGET_REPOSITORY: ${{ inputs.target_repository }}
+            ARTIFACT_NAME: ${{ inputs.artifact_name }}
+            # PAYLOAD: ${{ github.event.inputs.payload }}
             AUDIENCE: entur-oss-dispatcher
           run: |
             OIDC_TOKEN="$(curl -sS --fail-with-body \
@@ -49,10 +46,8 @@ jobs:
             --arg workflow_type "$WORKFLOW_TYPE" \
             --arg target_repository "$TARGET_REPOSITORY" \
             --arg artifact_name "$ARTIFACT_NAME" \
-            --arg custom_payload "${PAYLOAD:-}" \
             '{workflow_type: $workflow_type, target_repository: $target_repository}
-            | if $artifact_name != "" then . + {artifact_name: $artifact_name} else . end
-            | if $custom_payload != "" then . + {custom_payload: ($custom_payload | fromjson)} else . end')"
+            | if $artifact_name != "" then . + {artifact_name: $artifact_name} else . end')"
             
             curl --fail-with-body -X POST \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
