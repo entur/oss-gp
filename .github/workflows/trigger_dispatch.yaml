@@ -3,12 +3,15 @@ name: OSS Dispatch Trigger
 on:
   workflow_dispatch:
     inputs:
-      wotkflow_type:
+      workflow_type:
         description: 'The workflow type to trigger'
         required: true
       target_repository:
         description: 'The target repository to trigger the workflow in'
         required: true
+      artifact_name:
+        description: 'The name of the artifact to pass to the workflow'
+        required: false
       payload:
         description: 'The JSON payload to send'
         required: false
@@ -19,6 +22,11 @@ env:
 jobs:
     trigger:
         runs-on: ubuntu-latest
+        # permissions: id-token: allows the job to request an oidc token
+        #
+        # GitHub sets two env vars in it: ACTIONS_ID_TOKEN_REQUEST_URL and ACTIONS_ID_TOKEN_REQUEST_TOKEN.
+        # The workflow still has to call that URL to get the signed JWT, and it can ask for a
+        # specific audience with &audience=entur-oss-dispatcher.
         permissions:
             id-token: write
         outputs:
@@ -26,18 +34,27 @@ jobs:
         steps:
         - name: Trigger downstream CI
           env:
-            WORKFLOW_TYPE: ${{ github.event.inputs.wotkflow_type }}
+            WORKFLOW_TYPE: ${{ github.event.inputs.workflow_type }}
             TARGET_REPOSITORY: ${{ github.event.inputs.target_repository }}
+            ARTIFACT_NAME: ${{ github.event.inputs.artifact_name }}
             PAYLOAD: ${{ github.event.inputs.payload }}
-            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            AUDIENCE: entur-oss-dispatcher
           run: |
+            OIDC_TOKEN="$(curl -sS --fail-with-body \
+            -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq -r .value)"
+            echo "::add-mask::${OIDC_TOKEN}"
+            
             request_payload="$(jq -n \
-              --arg event_type "trigger-downstream-ci" \
-              --arg workflow_type "$WORKFLOW_TYPE" \
-              --arg target_repository "$TARGET_REPOSITORY" \
-              --arg payload "$PAYLOAD" \
-              '{event_type: $event_type, client_payload: {workflow_type: $workflow_type, target_repository: $target_repository, payload: $payload}}')"
-            curl -i -X POST -H "Authorization: Bearer $GH_TOKEN" ${CLOUD_RUN_URL} -d "$request_payload" >> $GITHUB_OUTPUT
-        - name: Output response
-          run: |
-            echo "Response: ${{ steps.trigger.outputs.response }}"
+            --arg workflow_type "$WORKFLOW_TYPE" \
+            --arg target_repository "$TARGET_REPOSITORY" \
+            --arg artifact_name "$ARTIFACT_NAME" \
+            --arg custom_payload "${PAYLOAD:-}" \
+            '{workflow_type: $workflow_type, target_repository: $target_repository}
+            | if $artifact_name != "" then . + {artifact_name: $artifact_name} else . end
+            | if $custom_payload != "" then . + {custom_payload: ($custom_payload | fromjson)} else . end')"
+            
+            curl --fail-with-body -X POST \
+            -H "Authorization: Bearer ${OIDC_TOKEN}" \
+            -H "Content-Type: application/json" \
+            "${CLOUD_RUN_URL}" -d "$request_payload"
