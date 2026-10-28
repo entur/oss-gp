@@ -3,7 +3,7 @@ name: OSS Dispatch Trigger
 on:
   workflow_dispatch:
     inputs:
-      wotkflow_type:
+      workflow_type:
         description: 'The workflow type to trigger'
         required: true
       target_repository:
@@ -49,9 +49,13 @@ jobs:
             --arg workflow_type "$WORKFLOW_TYPE" \
             --arg target_repository "$TARGET_REPOSITORY" \
             --arg artifact_name "$ARTIFACT_NAME" \
-            --arg payload "${PAYLOAD:-}" \
-            '{workflow_type: $workflow_type, target_repository: $target_repository, artifact_name: $artifact_name}
-            + (if $payload != "" then {payload: ($payload | fromjson)} else {} end)')"
+            --arg custom_payload "${PAYLOAD:-}" \
+            '{workflow_type: $workflow_type, target_repository: $target_repository}
+            + (
+                (if $custom_payload != "" then ($custom_payload | fromjson) else {} end)
+                + (if $artifact_name != "" then {artifact_name: $artifact_name} else {} end)
+              ) as $merged
+            | if ($merged | length) > 0 then . + {payload: $merged} else . end')"
             
             curl --fail-with-body -X POST \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
