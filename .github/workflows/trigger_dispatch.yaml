@@ -38,7 +38,7 @@ jobs:
             WORKFLOW_TYPE: ${{ inputs.workflow_type }}
             TARGET_REPOSITORY: ${{ inputs.target_repository }}
             ARTIFACT_NAME: ${{ inputs.artifact_name }}
-            PAYLOAD: ${{ github.event.inputs.payload }}
+            PAYLOAD: ${{ inputs.payload }}
             AUDIENCE: entur-oss-dispatcher
           run: |
             OIDC_TOKEN="$(curl --silent --show-error --fail-with-body \
@@ -53,7 +53,7 @@ jobs:
             --arg payload "$PAYLOAD" \
             '{workflow_type: $workflow_type, target_repository: $target_repository}
             | if $artifact_name != "" then . + {artifact_name: $artifact_name} else . end
-            | if $payload != "" then . + {payload: $payload} else . end')"
+            | if $payload != "" then . + {custom_payload: ($payload | fromjson)} else . end')"
             
             curl --silent --show-error --fail-with-body -X POST \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
