@@ -15,6 +15,10 @@ on:
         description: 'The name of the artifact to pass to the workflow'
         required: false
         type: string
+      payload:
+        description: 'Custom payload to pass to the workflow'
+        required: false
+        type: string
 env:
   CLOUD_RUN_URL: https://github-oss-dispatcher-620062935108.europe-west1.run.app
 
@@ -34,10 +38,10 @@ jobs:
             WORKFLOW_TYPE: ${{ inputs.workflow_type }}
             TARGET_REPOSITORY: ${{ inputs.target_repository }}
             ARTIFACT_NAME: ${{ inputs.artifact_name }}
-            # PAYLOAD: ${{ github.event.inputs.payload }}
+            PAYLOAD: ${{ inputs.payload }}
             AUDIENCE: entur-oss-dispatcher
           run: |
-            OIDC_TOKEN="$(curl -sS --fail-with-body \
+            OIDC_TOKEN="$(curl --silent --show-error --fail-with-body \
             -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
             "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${AUDIENCE}" | jq -r .value)"
             echo "::add-mask::${OIDC_TOKEN}"
@@ -46,10 +50,12 @@ jobs:
             --arg workflow_type "$WORKFLOW_TYPE" \
             --arg target_repository "$TARGET_REPOSITORY" \
             --arg artifact_name "$ARTIFACT_NAME" \
+            --arg payload "$PAYLOAD" \
             '{workflow_type: $workflow_type, target_repository: $target_repository}
-            | if $artifact_name != "" then . + {artifact_name: $artifact_name} else . end')"
+            | if $artifact_name != "" then . + {artifact_name: $artifact_name} else . end
+            | if $payload != "" then . + {custom_payload: ($payload | fromjson)} else . end')"
             
-            curl --fail-with-body -X POST \
+            curl --silent --show-error --fail-with-body -X POST \
             -H "Authorization: Bearer ${OIDC_TOKEN}" \
             -H "Content-Type: application/json" \
             "${CLOUD_RUN_URL}" -d "$request_payload"

@@ -1,0 +1,31 @@
+name: Test downstream
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-payload:
+    runs-on: ubuntu-latest
+    env:
+      AUTHOR: ${{ github.actor }}
+      TITLE: ${{ github.event.pull_request.title }}
+    outputs:
+      payload: ${{ steps.payload.outputs.payload }}
+    steps:
+      - name: Build payload
+        id: payload
+        run: |
+          echo "payload=$(jq -nc \
+            --arg author "${AUTHOR}" \
+            --arg title "${TITLE}" \
+            '{author: $author, title: $title}')" >> "$GITHUB_OUTPUT"
+
+  trigger-downstream-test:
+    needs: [ build-payload ]
+    permissions:
+      id-token: write
+    uses: $/.github/workflows/trigger_dispatch.yaml
+    with:
+      workflow_type: test
+      target_repository: entur/oss-gp-infra
+      payload: ${{ needs.build-payload.outputs.payload }}
